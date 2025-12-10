@@ -1,4 +1,4 @@
-#!/usr/bin
+#!/usr/bin/env bash
 set -euo pipefail
 
 # ---------- CONFIG ----------
