@@ -68,6 +68,9 @@ Usage:
   pspr sync <foldername> # interactive output
   pspr sync --quiet <foldername> # silent output
   pspr unsync <foldername>
+	pspr copy <foldername> <target>
+	pspr copy --quiet <foldername> <target>
+  pspr remove <target>
   pspr update
 EOF
 }
@@ -664,6 +667,152 @@ cmd_unsync() {
     "$remote_path"
 }
 
+# cmd_copy()
+# pspr copy [--quiet|-q] <foldername> <target>
+# Copy local <foldername> contents to remote bucket under prefix <target>
+cmd_copy() {
+  local quiet=0
+  local folder=""
+  local target=""
+
+  # Parse args
+  while (( $# > 0 )); do
+    case "$1" in
+      --quiet|-q)
+        quiet=1
+        shift
+        ;;
+      -*)
+        echo "Unknown flag: $1" >&2
+        echo "Usage: pspr copy [--quiet|-q] <foldername> <target>" >&2
+        exit 1
+        ;;
+      *)
+        if [[ -z "$folder" ]]; then
+          folder="$1"
+          shift
+        elif [[ -z "$target" ]]; then
+          target="$1"
+          shift
+        else
+          echo "Too many arguments. Usage: pspr copy [--quiet|-q] <foldername> <target>" >&2
+          exit 1
+        fi
+        ;;
+    esac
+  done
+
+  if [[ -z "$folder" || -z "$target" ]]; then
+    echo "Usage: pspr copy [--quiet|-q] <foldername> <target>" >&2
+    exit 1
+  fi
+
+  # base path from config
+  local base_path
+  if ! base_path="$(cmd_config_get path 2>/dev/null)"; then
+    echo 'Missing config "path". Set it with: pspr config set path /your/base/dir' >&2
+    exit 1
+  fi
+  base_path="$(expand_path "$base_path")"
+
+  if [[ "$folder" == /* || "$folder" == "~"* ]]; then
+    echo "foldername should be relative to config path ($base_path), not absolute: $folder" >&2
+    exit 1
+  fi
+
+  local src="$base_path/$folder"
+  if [[ ! -d "$src" ]]; then
+    echo "Folder not found: $src" >&2
+    exit 1
+  fi
+
+  ensure_rclone
+  load_config_or_die
+
+  # Build destination: remote:bucket/target
+  local dest="${RCLONE_REMOTE_NAME}:${S3_BUCKET_NAME}/${target}"
+
+  # Export credentials for providers like R2 when remote references env vars
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_TYPE="s3"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_PROVIDER="Cloudflare"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_REGION="$S3_REGION"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_ENDPOINT="$S3_ENDPOINT"
+
+  # Common rclone args (same tuning as sync, but using copy)
+  local -a common
+  common=(
+    --fast-list
+    --checksum
+    --copy-links
+    --track-renames
+    --track-renames-strategy hash
+    --s3-no-check-bucket
+    --s3-provider Cloudflare
+    --s3-access-key-id "$S3_ACCESS_KEY_ID"
+    --s3-secret-access-key "$S3_SECRET_ACCESS_KEY"
+    --s3-region "$S3_REGION"
+    --s3-endpoint "$S3_ENDPOINT"
+  )
+
+  if (( quiet == 1 )); then
+    rclone copy \
+      "${common[@]}" \
+      --stats-one-line \
+      --stats 1m \
+      --log-level NOTICE \
+      "$src" "$dest"
+  else
+    rclone copy \
+      "${common[@]}" \
+      --progress \
+      --stats-one-line \
+      --stats 10s \
+      "$src" "$dest"
+  fi
+}
+
+# cmd_remove()
+# pspr remove <target> -> delete the target folder/prefix on remote S3
+cmd_remove() {
+  if (( $# != 1 )); then
+    echo "Usage: pspr remove <target>" >&2
+    exit 1
+  fi
+  local target="$1"
+
+  # Disallow absolute-like targets
+  if [[ "$target" == /* || "$target" == "~"* ]]; then
+    echo "target should be a prefix within the bucket, not absolute: $target" >&2
+    exit 1
+  fi
+
+  ensure_rclone
+  load_config_or_die
+
+  # Remote path: remote:bucket/target
+  local remote_path="${RCLONE_REMOTE_NAME}:${S3_BUCKET_NAME}/${target}"
+
+  # Export credentials for providers like R2 when remote references env vars
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_TYPE="s3"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_PROVIDER="Cloudflare"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_REGION="$S3_REGION"
+  export RCLONE_CONFIG_${RCLONE_REMOTE_NAME:u}_ENDPOINT="$S3_ENDPOINT"
+
+  # Remove the entire prefix from remote
+  rclone purge \
+    --s3-no-check-bucket \
+    --s3-provider Cloudflare \
+    --s3-access-key-id "$S3_ACCESS_KEY_ID" \
+    --s3-secret-access-key "$S3_SECRET_ACCESS_KEY" \
+    --s3-region "$S3_REGION" \
+    --s3-endpoint "$S3_ENDPOINT" \
+    "$remote_path"
+}
+
 # ---------- UPDATE ----------
 
 # cmd_update()
@@ -802,7 +951,13 @@ main() {
       ;;   
     unsync)
       cmd_unsync "$@"
-      ;;      
+      ;;   
+    copy)
+      cmd_copy "$@"
+      ;;
+    remove)
+      cmd_remove "$@"
+      ;;   
     update)
       cmd_update "$@"
       ;;         
