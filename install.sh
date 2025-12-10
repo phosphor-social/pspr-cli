@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env zsh
 set -euo pipefail
 
 URL="https://raw.githubusercontent.com/phosphor-social/pspr-cli/refs/heads/main/pspr.sh"
