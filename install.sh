@@ -29,5 +29,3 @@ echo "Installing to ${DEST}..."
 install -m 0755 "$TMP" "$DEST"
 
 echo "Installed ${DEST}"
-
-echo "Done."
