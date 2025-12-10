@@ -746,8 +746,6 @@ cmd_copy() {
     --fast-list
     --checksum
     --copy-links
-    --track-renames
-    --track-renames-strategy hash
     --s3-no-check-bucket
     --s3-provider Cloudflare
     --s3-access-key-id "$S3_ACCESS_KEY_ID"
