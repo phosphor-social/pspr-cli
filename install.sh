@@ -30,11 +30,4 @@ install -m 0755 "$TMP" "$DEST"
 
 echo "Installed ${DEST}"
 
-# Remove the installer script itself
-SELF="${BASH_SOURCE[0]}"
-if [ -n "${SELF:-}" ] && [ -f "$SELF" ]; then
-  echo "Removing installer script: $SELF"
-  rm -f "$SELF" || true
-fi
-
 echo "Done."
